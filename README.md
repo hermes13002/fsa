@@ -57,7 +57,7 @@ fsa generate
 
 ## 📜 License
 
-MIT
+BSD 3-clause license
 
 ---
 
