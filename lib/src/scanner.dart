@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:developer';
 import 'package:path/path.dart' as p;
 
 class AssetGroup {
@@ -25,7 +26,7 @@ class Scanner {
     final groups = <AssetGroup>[];
 
     if (!assetsDir.existsSync()) {
-      print('No assets/ directory found at $assetsPath');
+      log('No assets/ directory found at $assetsPath');
       return ScanResult(groups);
     }
 

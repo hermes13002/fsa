@@ -1,5 +1,6 @@
 // pubspec_editor.dart
 import 'dart:io';
+import 'dart:developer';
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 import 'package:path/path.dart' as p;
@@ -33,7 +34,7 @@ class PubspecEditor {
       final newContent = await file.readAsString();
       _editor = YamlEditor(newContent);
       _doc = loadYaml(newContent) as Map?;
-      print('Created flutter: section in pubspec.yaml');
+      log('Created flutter: section in pubspec.yaml');
     }
   }
 
@@ -44,7 +45,7 @@ class PubspecEditor {
       throw Exception('Call ensureFlutterSection() first.');
     }
 
-    final file = File(pubspecPath);
+    // final file = File(pubspecPath);
 
     // Step 1: Ensure assets and fonts nodes exist (create minimal placeholder)
     if (!(_doc!['flutter'] as Map).containsKey('assets')) {
@@ -70,7 +71,7 @@ class PubspecEditor {
       final topEntries = assetsRootDir.listSync(followLinks: false);
       for (final e in topEntries) {
         if (e is Directory) {
-          final topDirPath = p.join(assetsRootName, p.basename(e.path)) + '/';
+          final topDirPath = '${p.join(assetsRootName, p.basename(e.path))}/';
           // collect all nested dirs including the top dir itself
           final nestedDirs = <String>{};
           nestedDirs.add(topDirPath); // top-level folder itself
@@ -165,7 +166,7 @@ class PubspecEditor {
           finalContent = finalContent.replaceFirstMapped(flutterHeader, (match) => match.group(0)! + assetLines.toString());
         } else {
           // last resort: append at end under flutter:
-          finalContent = finalContent + '\n' + assetLines.toString();
+          finalContent = '$finalContent\n$assetLines';
         }
       }
     }
@@ -186,7 +187,7 @@ class PubspecEditor {
               
           } else {
             // as last resort, append
-            finalContent = finalContent + '\n' + fontsBlock;
+            finalContent = '$finalContent\n$fontsBlock';
           }
         }
       }

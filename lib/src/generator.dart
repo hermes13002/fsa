@@ -31,7 +31,7 @@ class Generator {
     // collect available class names to include in aggregator
     final availableClasses = <String, String>{}; // className -> propertyName
     for (final group in scan.groups) {
-      final className = 'App' + _toPascal(group.groupName.isEmpty ? 'Assets' : group.groupName);
+      final className = 'App${_toPascal(group.groupName.isEmpty ? 'Assets' : group.groupName)}';
       final propName = _toLowerCamel(group.groupName.isEmpty ? 'assets' : group.groupName);
       availableClasses[className] = propName;
       // Map will be used after writing aggregator header content
@@ -51,7 +51,7 @@ class Generator {
     // Generate each group class
     for (final group in scan.groups) {
       final folder = group.groupName.isEmpty ? 'assets' : group.groupName;
-      final className = 'App' + _toPascal(folder);
+      final className = 'App${_toPascal(folder)}';
       buffer.writeln('/// Asset group: ${_toPascal(folder)}');
       buffer.writeln('class $className {');
       buffer.writeln('  $className._();');
@@ -128,7 +128,7 @@ class Generator {
     // join tokens with underscore and uppercase
     var candidate = nameParts.map((t) => t.toUpperCase()).join('_');
     // append suffix
-    candidate = '${candidate}_${extension}';
+    candidate = '${candidate}_$extension';
     // if candidate starts with digit -> prefix underscore
     if (candidate.isNotEmpty && RegExp(r'^[0-9]').hasMatch(candidate[0])) {
       candidate = '_$candidate';
