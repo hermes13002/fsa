@@ -23,7 +23,6 @@ class Generator {
     buffer.writeln('// Assets: ${scan.totalFiles} files | Images: $imagesCount | Fonts: $fontsCount | Lottie: $lottieCount');
     buffer.writeln('');
 
-    // Master aggregator header
     buffer.writeln('/// Provides quick access to all asset groups.');
     buffer.writeln('class AppAssets {');
     buffer.writeln('  AppAssets._();');

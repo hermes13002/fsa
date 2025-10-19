@@ -34,7 +34,7 @@ class PubspecEditor {
       final newContent = await file.readAsString();
       _editor = YamlEditor(newContent);
       _doc = loadYaml(newContent) as Map?;
-      log('Created flutter: section in pubspec.yaml');
+      print('Created flutter: section in pubspec.yaml');
     }
   }
 

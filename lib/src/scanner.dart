@@ -26,7 +26,7 @@ class Scanner {
     final groups = <AssetGroup>[];
 
     if (!assetsDir.existsSync()) {
-      log('No assets/ directory found at $assetsPath');
+      print('No assets/ directory found at $assetsPath');
       return ScanResult(groups);
     }
 
