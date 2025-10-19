@@ -47,6 +47,6 @@ class Cli {
     final importPath = pkgName != null
         ? "package:$pkgName/core/assets/app_assets.dart"
         : "package:<your_package>/core/assets/app_assets.dart";
-    print('Done. Import from: $importPath');
+    print('All done! Just import it from: $importPath');
   }
 }

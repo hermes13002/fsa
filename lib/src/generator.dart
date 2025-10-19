@@ -13,7 +13,7 @@ class Generator {
 
     final buffer = StringBuffer();
 
-    // summary counts
+    // count up assets by type for the header
     final imagesCount = scan.groups.firstWhere((g) => g.groupName.toLowerCase() == 'images', orElse: () => AssetGroup('', [])).files.length;
     final fontsCount = scan.groups.firstWhere((g) => g.groupName.toLowerCase() == 'fonts', orElse: () => AssetGroup('', [])).files.length;
     final lottieCount = scan.groups.firstWhere((g) => g.groupName.toLowerCase() == 'lottie', orElse: () => AssetGroup('', [])).files.length;
@@ -23,11 +23,11 @@ class Generator {
     buffer.writeln('// Assets: ${scan.totalFiles} files | Images: $imagesCount | Fonts: $fontsCount | Lottie: $lottieCount');
     buffer.writeln('');
 
-    buffer.writeln('/// Provides quick access to all asset groups.');
+    buffer.writeln('/// quick access to all asset groups');
     buffer.writeln('class AppAssets {');
     buffer.writeln('  AppAssets._();');
 
-    // collect available class names to include in aggregator
+    // collect class names so we can reference them in the aggregator
     final availableClasses = <String, String>{}; // className -> propertyName
     for (final group in scan.groups) {
       final className = 'App${_toPascal(group.groupName.isEmpty ? 'Assets' : group.groupName)}';
@@ -36,10 +36,9 @@ class Generator {
       // Map will be used after writing aggregator header content
     }
 
-    // Write aggregator fields (we will refer to classes which will be generated later)
+    // write properties that point to each group class
     for (final entry in availableClasses.entries) {
-      // property name will be same as group folder name in lowerCamel,
-      // but keep it simple: e.g., images -> images
+      // property name is just the folder name in lowerCamel
       final className = entry.key;
       final property = entry.value;
       buffer.writeln('  static const $property = $className;');
@@ -47,11 +46,11 @@ class Generator {
     buffer.writeln('}');
     buffer.writeln('');
 
-    // Generate each group class
+    // generate a class for each group
     for (final group in scan.groups) {
       final folder = group.groupName.isEmpty ? 'assets' : group.groupName;
       final className = 'App${_toPascal(folder)}';
-      buffer.writeln('/// Asset group: ${_toPascal(folder)}');
+      buffer.writeln('/// asset group: ${_toPascal(folder)}');
       buffer.writeln('class $className {');
       buffer.writeln('  $className._();');
 
@@ -65,10 +64,10 @@ class Generator {
       buffer.writeln('');
     }
 
-    // Font family names class (if any)
+    // Font family names class (if we have fonts)
     final fontsGroup = scan.groups.firstWhere((g) => g.groupName.toLowerCase() == 'fonts', orElse: () => AssetGroup('', []));
     if (fontsGroup.files.isNotEmpty) {
-      // Build families (first token before -/_/space)
+      // extract family names (first token before -/_/space)
       final families = <String>{};
       for (final f in fontsGroup.files) {
         final rel = p.relative(f.path, from: projectRoot).replaceAll('\\', '/');
@@ -77,7 +76,7 @@ class Generator {
         families.add(family);
       }
 
-      buffer.writeln('/// Font family names');
+      buffer.writeln('/// font family names');
       buffer.writeln('class AppFontFamilies {');
       buffer.writeln('  AppFontFamilies._();');
       for (final fam in families) {
@@ -99,26 +98,26 @@ class Generator {
     return filename;
   }
 
-  // CONSTANT name rules per your spec:
-  // - Uppercase with underscores
-  // - Keep suffix for format (PNG, SVG, TTF, JSON, MP4, etc.)
-  // - Use nested folder names as parts separated by underscores
-  // - If file starts with digit -> prefix with underscore
+  // rules for making constant names:
+  // - uppercase with underscores
+  // - keep format suffix (PNG, SVG, TTF, JSON, MP4, etc.)
+  // - use nested folder names as parts separated by underscores
+  // - if file starts with digit -> prefix with underscore
   String _makeConstantNameFromPath(String relPath) {
-    // relPath e.g. assets/images/icons/home.png
+    // relPath example: assets/images/icons/home.png
     final parts = relPath.split('/');
     // drop the root 'assets' part
     final withoutRoot = parts.skipWhile((p) => p.toLowerCase() != 'assets').toList();
     if (withoutRoot.isNotEmpty && withoutRoot.first.toLowerCase() == 'assets') {
       withoutRoot.removeAt(0);
     }
-    // now e.g. ['images','icons','home.png']
+    // now we have like ['images','icons','home.png']
     final last = withoutRoot.isNotEmpty ? withoutRoot.last : '';
     final fileName = last;
     final extension = p.extension(fileName).replaceFirst('.', '').toUpperCase(); // PNG
     final nameWithoutExt = p.basenameWithoutExtension(fileName);
     final nameParts = <String>[];
-    // Use all folder parts (excluding final file) + filename base (split by -,_,space)
+    // use all folder parts (excluding final file) + filename base (split by -,_,space)
     final folderParts = withoutRoot.length > 1 ? withoutRoot.sublist(0, withoutRoot.length - 1) : <String>[];
     for (final fp in folderParts) {
       nameParts.addAll(_splitToTokens(fp));
@@ -126,19 +125,19 @@ class Generator {
     nameParts.addAll(_splitToTokens(nameWithoutExt));
     // join tokens with underscore and uppercase
     var candidate = nameParts.map((t) => t.toUpperCase()).join('_');
-    // append suffix
+    // append format suffix
     candidate = '${candidate}_$extension';
-    // if candidate starts with digit -> prefix underscore
+    // if it starts with a digit -> prefix with underscore
     if (candidate.isNotEmpty && RegExp(r'^[0-9]').hasMatch(candidate[0])) {
       candidate = '_$candidate';
     }
-    // ensure valid Dart identifier (letters, digits, and underscores)
+    // make sure it's a valid dart identifier (letters, digits, underscores only)
     candidate = candidate.replaceAll(RegExp(r'[^A-Z0-9_]'), '_');
     return candidate;
   }
 
   List<String> _splitToTokens(String s) {
-    // split on non-alphanumeric boundaries (dash, underscore, spaces)
+    // split on non-alphanumeric stuff (dash, underscore, spaces)
     final tokens = RegExp(r'[A-Za-z0-9]+').allMatches(s).map((m) => m.group(0)!).toList();
     return tokens;
   }
@@ -155,7 +154,7 @@ class Generator {
   }
 
   String _toUpperCamel(String input) {
-    // for font family constants - uppercase token only (no suffix)
+    // for font family constants - just uppercase the whole thing
     return input.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
   }
 }

@@ -2,8 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-- Prepare for enhancements: better tests, more robust scanning, CLI flags (future).
+## [0.0.2] - 2025-10-18
+### Docs & UX Improvements
+- Replaced `log()` with `print()` to ensure console output is visible when running `fsa generate`.
+- Updated README with clearer installation and usage instructions.
+
+### Bug Fixes
+- Fixed an issue where re-running `fsa generate` would **duplicate the `fonts:` block** in `pubspec.yaml`, causing a `Duplicate mapping key` error.
+
+### Behavior Fixes
+- Finalized **font grouping strategy** to **keep font families separate (case-sensitive)** rather than merging similar names.
+- Skipped implementation of removed-assets/fonts logging for now (only additions printed in CLI).
 
 ## [0.0.1] - 2025-10-17
 - Initial release
@@ -17,3 +26,6 @@ All notable changes to this project will be documented in this file.
   - README and basic package metadata.
 
 ---
+
+## [Unreleased]
+- Prepare for enhancements: better tests, more robust scanning, CLI flags (future).

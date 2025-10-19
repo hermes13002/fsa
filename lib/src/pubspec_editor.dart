@@ -1,16 +1,14 @@
 // pubspec_editor.dart
 import 'dart:io';
-import 'dart:developer';
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 import 'package:path/path.dart' as p;
 
-/// Writes multiline `assets:` and `fonts:` blocks into pubspec.yaml.
-/// Rules:
-/// - Converts inline arrays into multiline lists
-/// - Explicitly lists all nested subfolders under assets/ (including empty ones)
-/// - Adds comment for empty folders: "# (empty folder — kept for future assets)"
-/// - Rewrites fonts: into multiline family + fonts structure
+/// handles merging assets & fonts into pubspec.yaml safely
+/// - merges assets without duplicates (keeps existing order, adds new ones at end)
+/// - merges fonts by family name (case-sensitive), adds only new assets,
+///   removes font files that don't exist anymore, cleans up empty families
+/// - writes clean multiline blocks (removes comments in those blocks)
 class PubspecEditor {
   final String pubspecPath;
   YamlEditor? _editor;
@@ -38,64 +36,208 @@ class PubspecEditor {
     }
   }
 
-  /// Main entry: builds explicit nested folders for assets and a multiline fonts block.
-  /// Returns a tuple-like map with counts added (assetsAdded, fontsAdded) for diagnostics.
+  /// merge assets and fonts with cleanup
+  /// returns diagnostics like:
+  /// { 'assetsAdded': int, 'assetsRemoved': int, 'fontsAdded': int, 'fontsRemoved': int }
   Future<Map<String, int>> updateAssetsAndFontsExplicit() async {
     if (_editor == null) {
       throw Exception('Call ensureFlutterSection() first.');
     }
 
-    // final file = File(pubspecPath);
-
-    // Step 1: Ensure assets and fonts nodes exist (create minimal placeholder)
-    if (!(_doc!['flutter'] as Map).containsKey('assets')) {
-      _editor!.update(['flutter', 'assets'], []);
-    }
-    if (!(_doc!['flutter'] as Map).containsKey('fonts')) {
-      _editor!.update(['flutter', 'fonts'], []);
-    }
-
-    // Write the intermediate YAML (we'll replace placeholders with formatted blocks)
-    final intermediate = _editor!.toString();
-
-    // Step 2: Build explicit asset folder list (all nested subfolders under assets/)
     final projectRoot = Directory(pubspecPath).parent.path;
-    final assetsRoot = p.join(projectRoot, assetsRootName);
-    final List<String> explicitPaths = [];
 
-    if (Directory(assetsRoot).existsSync()) {
-      // Include top-level files under assets/ as 'assets/' explicit path
-      final assetsRootDir = Directory(assetsRoot);
-
-      // Gather top-level entries under assets/ in filesystem order
-      final topEntries = assetsRootDir.listSync(followLinks: false);
-      for (final e in topEntries) {
-        if (e is Directory) {
-          final topDirPath = '${p.join(assetsRootName, p.basename(e.path))}/';
-          // collect all nested dirs including the top dir itself
-          final nestedDirs = <String>{};
-          nestedDirs.add(topDirPath); // top-level folder itself
-          // recursively collect all subdirectories under this top dir
-          for (final sub in Directory(e.path).listSync(recursive: true, followLinks: false)) {
-            if (sub is Directory) {
-              final rel = p.relative(sub.path, from: projectRoot).replaceAll('\\', '/');
-              final entry = rel.endsWith('/') ? rel : '$rel/';
-              nestedDirs.add(entry);
-            }
-          }
-          // add in discovery order: topDir followed by any nested directories
-          explicitPaths.addAll(nestedDirs.toList());
-        } else if (e is File) {
-          // if there are files directly under assets/, include 'assets/' path
-          final assetsRootEntry = '$assetsRootName/';
-          if (!explicitPaths.contains(assetsRootEntry)) explicitPaths.add(assetsRootEntry);
+    // ---------- ASSETS ----------
+    // read what's already in pubspec
+    final existingAssets = <String>[];
+    try {
+      final flutter = _doc!['flutter'] as Map?;
+      if (flutter != null && flutter.containsKey('assets')) {
+        final list = flutter['assets'] as YamlList;
+        for (var item in list) {
+          existingAssets.add(item.toString().replaceAll('\\', '/'));
         }
       }
-    } else {
-      // No assets/ directory exists — nothing to add
+    } catch (_) {}
+
+    // build paths from what's actually on disk
+    final diskPaths = _collectExplicitAssetDirs(projectRoot);
+
+    // merge: keep existing order, then add missing ones from disk
+    final mergedAssets = <String>[];
+    final seen = <String>{};
+    for (final a in existingAssets) {
+      final n = a.replaceAll('\\', '/');
+      if (!seen.contains(n)) {
+        mergedAssets.add(n);
+        seen.add(n);
+      }
+    }
+    for (final d in diskPaths) {
+      final n = d.replaceAll('\\', '/');
+      if (!seen.contains(n)) {
+        mergedAssets.add(n);
+        seen.add(n);
+      }
     }
 
-    // Normalize and deduplicate while preserving discovery order
+    // figure out what changed
+    final assetsAdded = mergedAssets.where((p) => !existingAssets.contains(p)).length;
+    final assetsRemoved = existingAssets.where((p) => !mergedAssets.contains(p)).length;
+
+    // write assets to yaml under flutter.assets as multiline list
+    // use yaml_edit to update the node
+    _editor!.update(['flutter', 'assets'], mergedAssets);
+
+    // ---------- FONTS ----------
+    // existing fonts map: family -> list of asset paths
+    final existingFonts = <String, List<String>>{};
+    try {
+      final flutter = _doc!['flutter'] as Map?;
+      if (flutter != null && flutter.containsKey('fonts')) {
+        final fList = flutter['fonts'] as YamlList;
+        for (final famEntry in fList) {
+          if (famEntry is YamlMap && famEntry.containsKey('family')) {
+            final famName = famEntry['family'].toString();
+            final assetsList = <String>[];
+            if (famEntry.containsKey('fonts')) {
+              final fontsYamlList = famEntry['fonts'] as YamlList;
+              for (final a in fontsYamlList) {
+                if (a is YamlMap && a.containsKey('asset')) {
+                  assetsList.add(a['asset'].toString().replaceAll('\\', '/'));
+                }
+              }
+            }
+            existingFonts[famName] = assetsList;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // scan fonts folder recursively and group by family name
+    final diskFontsMap = <String, List<String>>{};
+    final fontsRoot = p.join(projectRoot, assetsRootName, 'fonts');
+    if (Directory(fontsRoot).existsSync()) {
+      for (final ent in Directory(fontsRoot).listSync(recursive: true, followLinks: false)) {
+        if (ent is File) {
+          final rel = p.relative(ent.path, from: projectRoot).replaceAll('\\', '/');
+          final filename = p.basenameWithoutExtension(rel);
+          final fam = _extractFamilyFromFilename(filename); // FILENAME strategy
+          diskFontsMap.putIfAbsent(fam, () => []).add(rel);
+        }
+      }
+    }
+
+    // merge fonts:
+    // - for each existing family, keep only assets that still exist
+    // - add new assets alphabetically if they're on disk but not in the list
+    // - for new families from disk, create new blocks with sorted assets
+    final mergedFonts = <Map<String, dynamic>>[]; // list of family maps to write
+    int fontsAdded = 0;
+    int fontsRemoved = 0;
+
+    // process existing families first, keep their order
+    for (final fam in existingFonts.keys) {
+      final existingList = existingFonts[fam]!;
+      final diskList = diskFontsMap[fam] ?? [];
+
+      // keep assets that still exist on disk
+      final kept = <String>[];
+      for (final a in existingList) {
+        if (diskList.contains(a)) {
+          kept.add(a);
+        } else {
+          fontsRemoved++;
+        }
+      }
+
+      // find new ones to add (on disk but not in existing list)
+      final toAdd = diskList.where((d) => !existingList.contains(d)).toList()..sort((a, b) => a.compareTo(b));
+
+      // append new ones alphabetically
+      final mergedList = <String>[]..addAll(kept)..addAll(toAdd);
+      fontsAdded += toAdd.length;
+
+      // only add family block if it's not empty
+      if (mergedList.isNotEmpty) {
+        mergedFonts.add({
+          'family': fam,
+          'fonts': mergedList.map((a) => {'asset': a}).toList(),
+        });
+      }
+
+      // remove processed family so we know which ones are new
+      diskFontsMap.remove(fam);
+    }
+
+    // process any remaining disk families (these are new)
+    final newFamilies = diskFontsMap.keys.toList()..sort(); // alphabetical for consistency
+    for (final fam in newFamilies) {
+      final assetsForFam = diskFontsMap[fam]!..sort((a, b) => a.compareTo(b));
+      if (assetsForFam.isNotEmpty) {
+        mergedFonts.add({
+          'family': fam,
+          'fonts': assetsForFam.map((a) => {'asset': a}).toList(),
+        });
+        fontsAdded += assetsForFam.length;
+      }
+    }
+
+    // write fonts block (replace entire 'flutter.fonts' with merged data)
+    if (mergedFonts.isEmpty) {
+      // remove fonts key if it exists and we have nothing
+      try {
+        final flutterMap = _doc!['flutter'] as Map?;
+        if (flutterMap != null && flutterMap.containsKey('fonts')) {
+          _editor!.remove(['flutter', 'fonts']);
+        }
+      } catch (_) {}
+    } else {
+      _editor!.update(['flutter', 'fonts'], mergedFonts);
+    }
+
+    // save changes
+    await _write(_editor!.toString());
+
+    return {
+      'assetsAdded': assetsAdded,
+      'assetsRemoved': assetsRemoved,
+      'fontsAdded': fontsAdded,
+      'fontsRemoved': fontsRemoved,
+    };
+  }
+
+  /// collect explicit nested asset directories under the assets root
+  /// returns list of relative paths (with trailing slash) in discovery order
+  List<String> _collectExplicitAssetDirs(String projectRoot) {
+    final assetsRoot = p.join(projectRoot, assetsRootName);
+    final explicitPaths = <String>[];
+
+    if (!Directory(assetsRoot).existsSync()) {
+      return explicitPaths;
+    }
+
+    // get top-level stuff under assets/ in filesystem order
+    final topEntries = Directory(assetsRoot).listSync(followLinks: false);
+    for (final e in topEntries) {
+      if (e is Directory) {
+        final topDirPath = '${p.join(assetsRootName, p.basename(e.path))}/'.replaceAll('\\', '/');
+        final nestedDirs = <String>[];
+        nestedDirs.add(topDirPath);
+        for (final sub in Directory(e.path).listSync(recursive: true, followLinks: false)) {
+          if (sub is Directory) {
+            final rel = p.relative(sub.path, from: projectRoot).replaceAll('\\', '/');
+            final entry = rel.endsWith('/') ? rel : '$rel/';
+            nestedDirs.add(entry);
+          }
+        }
+        explicitPaths.addAll(nestedDirs);
+      } else if (e is File) {
+        final assetsRootEntry = '$assetsRootName/'.replaceAll('\\', '/');
+        if (!explicitPaths.contains(assetsRootEntry)) explicitPaths.add(assetsRootEntry);
+      }
+    }
+
+    // normalize and remove duplicates while keeping order
     final seen = <String>{};
     final normalized = <String>[];
     for (final pth in explicitPaths) {
@@ -105,156 +247,10 @@ class PubspecEditor {
         seen.add(np);
       }
     }
-
-    // Step 3: Determine emptiness per path (empty -> comment)
-    final pathIsEmpty = <String, bool>{};
-    for (final rel in normalized) {
-      final abs = p.join(projectRoot, rel);
-      final dir = Directory(abs);
-      var empty = true;
-      if (dir.existsSync()) {
-        // check for any file under dir (recursive)
-        for (final ent in dir.listSync(recursive: true, followLinks: false)) {
-          if (ent is File) {
-            empty = false;
-            break;
-          }
-        }
-      } else {
-        // if directory doesn't exist (maybe user added path manually) mark as empty
-        empty = true;
-      }
-      pathIsEmpty[rel] = empty;
-    }
-
-    // Step 4: Build formatted multiline assets block with chosen indentation (2 spaces under flutter:)
-    final assetLines = StringBuffer();
-    assetLines.writeln('  assets:');
-    for (final rel in normalized) {
-      final emptynote = pathIsEmpty[rel]! ? '  # (empty folder — kept for future assets)' : '';
-      assetLines.writeln("    - $rel$emptynote");
-    }
-
-    // If nothing found, still keep top-level 'assets/' as placeholder
-    if (normalized.isEmpty) {
-      assetLines.writeln("    - assets/  # (empty folder — kept for future assets)");
-    }
-
-    // Step 5: Build formatted multiline fonts block
-    final fontsBlock = _buildFontsBlockMultiLine(projectRoot);
-
-    // Step 6: Replace the placeholder single-line representations "  assets: []" and "  fonts: []"
-    // in the intermediate YAML with our multiline blocks.
-    var finalContent = intermediate;
-
-    // Replace assets: [] (which we ensured exists) with expanded block.
-    // We look for the first occurrence of "assets:" under a line that begins with two spaces (flutter section).
-    // For simplicity, replace the first 'assets:' occurrence that has '[]' after it.
-    final assetEmptyPattern = RegExp(r'(^\s{2}assets:\s*\[\s*\])', multiLine: true);
-    if (assetEmptyPattern.hasMatch(finalContent)) {
-      finalContent = finalContent.replaceFirst(assetEmptyPattern, assetLines.toString());
-    } else {
-      // If not found as empty inline, try to replace any existing assets: ... block under flutter
-      // We'll replace a block that starts with 2 spaces + 'assets:' and continues with indented lines
-      final assetBlockPattern = RegExp(r'(^\s{2}assets:\s*\n(?:\s{4}-.*\n)*)', multiLine: true);
-      if (assetBlockPattern.hasMatch(finalContent)) {
-        finalContent = finalContent.replaceFirst(assetBlockPattern, assetLines.toString());
-      } else {
-        // as a fallback, insert the assets block after 'flutter:' line
-        final flutterHeader = RegExp(r'(^flutter:\s*\n)', multiLine: true);
-        if (flutterHeader.hasMatch(finalContent)) {
-          finalContent = finalContent.replaceFirstMapped(flutterHeader, (match) => match.group(0)! + assetLines.toString());
-        } else {
-          // last resort: append at end under flutter:
-          finalContent = '$finalContent\n$assetLines';
-        }
-      }
-    }
-
-    // Replace fonts placeholder
-    if (fontsBlock.isNotEmpty) {
-      final fontsEmptyPattern = RegExp(r'(^\s{2}fonts:\s*\[\s*\])', multiLine: true);
-      if (fontsEmptyPattern.hasMatch(finalContent)) {
-        finalContent = finalContent.replaceFirst(fontsEmptyPattern, fontsBlock);
-      } else {
-        final fontsBlockPattern = RegExp(r'(^\s{2}fonts:\s*\n(?:\s{4}-.*\n)*)', multiLine: true);
-        if (fontsBlockPattern.hasMatch(finalContent)) {
-          finalContent = finalContent.replaceFirst(fontsBlockPattern, fontsBlock);
-        } else {
-          // insert after assets block if present
-          final assetsInsertPoint = RegExp(r'(^\s{2}assets:\s*\n(?:\s{4}-.*\n)*)', multiLine: true);
-          if (assetsInsertPoint.hasMatch(finalContent)) {
-              
-          } else {
-            // as last resort, append
-            finalContent = '$finalContent\n$fontsBlock';
-          }
-        }
-      }
-    }
-
-    // Step 7: Write final content back to pubspec.yaml
-    await _write(finalContent);
-
-    // For diagnostics, compute counts added relative to previous state
-    // We'll simply return counts: number of explicit asset paths and number of font asset entries
-    final assetsAdded = normalized.length;
-    final fontsAdded = _countFontEntriesFromBlock(fontsBlock);
-
-    return {'assetsAdded': assetsAdded, 'fontsAdded': fontsAdded};
-  }
-
-  /// Builds a multiline fonts block string based on the current fonts found in assets/fonts.
-  /// Format:
-  ///   fonts:
-  ///     - family: Manrope
-  ///       fonts:
-  ///         - asset: assets/fonts/Manrope-Bold.ttf
-  ///         - asset: assets/fonts/Manrope-Regular.ttf
-  String _buildFontsBlockMultiLine(String projectRoot) {
-    final fontsRoot = p.join(projectRoot, assetsRootName, 'fonts');
-    final families = <String, List<String>>{};
-
-    if (!Directory(fontsRoot).existsSync()) {
-      return ''; // nothing to write
-    }
-
-    // collect font files recursively under assets/fonts
-    for (final ent in Directory(fontsRoot).listSync(recursive: true, followLinks: false)) {
-      if (ent is File) {
-        final rel = p.relative(ent.path, from: projectRoot).replaceAll('\\', '/');
-        final filename = p.basenameWithoutExtension(rel);
-        final family = _extractFamilyFromFilename(filename);
-        families.putIfAbsent(family, () => []).add(rel);
-      }
-    }
-
-    if (families.isEmpty) return '';
-
-    final sb = StringBuffer();
-    sb.writeln('  fonts:');
-    // sort family names to keep stable order (alphabetical)
-    final famNames = families.keys.toList()..sort();
-    for (final fam in famNames) {
-      sb.writeln('    - family: $fam');
-      sb.writeln('      fonts:');
-      final assets = families[fam]!;
-      // keep natural discovery order as found in disk listing above
-      for (final a in assets) {
-        sb.writeln("        - asset: $a");
-      }
-    }
-    return sb.toString();
-  }
-
-  int _countFontEntriesFromBlock(String block) {
-    if (block.isEmpty) return 0;
-    final matches = RegExp(r'asset:\s*(\S+)').allMatches(block);
-    return matches.length;
+    return normalized;
   }
 
   String _extractFamilyFromFilename(String filename) {
-    // heuristic: part before first '-' or '_' or space
     final separators = ['-', '_', ' '];
     for (final s in separators) {
       if (filename.contains(s)) return filename.split(s).first;
@@ -267,8 +263,8 @@ class PubspecEditor {
     await f.writeAsString(content);
   }
 
-  /// Read package name from pubspec.yaml top-level `name` field.
-  /// Returns null if it cannot be found.
+  /// read package name from pubspec.yaml 'name' field
+  /// returns null if not found
   String? getPackageName() {
     try {
       final Map? doc = _doc;
