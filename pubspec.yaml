@@ -1,6 +1,6 @@
 name: fsa
 description: "Flutter Smart Assets - CLI tool that auto-scans assets/fonts and generates strongly-typed Dart constants with auto-updated pubspec.yaml"
-version: 0.0.2
+version: 0.0.3
 # homepage: https://github.com/hermes13002/fsa
 repository: https://github.com/hermes13002/fsa.git
 

@@ -2,7 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.0.2] - 2025-10-18
+## [0.0.3] - 2025-10-20
+### Docs & UX Improvements
+- Updated README with clearer installation and usage instructions.
+
+## [0.0.2] - 2025-10-19
 ### Docs & UX Improvements
 - Replaced `log()` with `print()` to ensure console output is visible when running `fsa generate`.
 - Updated README with clearer installation and usage instructions.
