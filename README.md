@@ -57,6 +57,46 @@ fsa generate
 # ✅ app_assets.dart created
 ```
 
+## Frequently Asked Questions (FAQ)
+
+## ❓ Why do I get `command not found: fsa` after installation?
+
+When you run:
+
+```sh
+dart pub global activate fsa
+```
+
+Dart installs the `fsa` executable into a **global bin directory**. However, your terminal can only run it if that directory is added to your **PATH**.
+
+---
+
+## ✅ How do I add Dart’s global bin to PATH?
+
+### macOS / Linux
+
+Add this line to your shell config file (`~/.zshrc`, `~/.bashrc`, etc.):
+
+```sh
+export PATH="$PATH":"$HOME/.pub-cache/bin"
+```
+
+Then reload your terminal:
+
+```sh
+source ~/.zshrc   # or ~/.bashrc
+```
+
+### Windows (PowerShell)
+
+Run:
+
+```powershell
+setx PATH "$env:PATH;C:\\Users\\<YourUser>\\AppData\\Local\\Pub\\Cache\\bin"
+```
+
+Then **restart your terminal**.
+
 ---
 
 ## 📜 License
