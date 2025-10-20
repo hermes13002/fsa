@@ -59,7 +59,8 @@ fsa generate
 
 ## Frequently Asked Questions (FAQ)
 
-## ❓ Why do I get `command not found: fsa` after installation?
+<details>
+<summary>❓ Why do I get `command not found: fsa` after installation?</summary>
 
 When you run:
 
@@ -69,9 +70,12 @@ dart pub global activate fsa
 
 Dart installs the `fsa` executable into a **global bin directory**. However, your terminal can only run it if that directory is added to your **PATH**.
 
+</details>
+
 ---
 
-## ✅ How do I add Dart’s global bin to PATH?
+<details>
+<summary>✅ How do I add Dart’s global bin to PATH?</summary>
 
 ### macOS / Linux
 
@@ -96,6 +100,30 @@ setx PATH "$env:PATH;C:\\Users\\<YourUser>\\AppData\\Local\\Pub\\Cache\\bin"
 ```
 
 Then **restart your terminal**.
+
+</details>
+
+---
+
+<details>
+<summary>❓ How do I upgrade to the latest version of fsa?</summary>
+
+If you already installed fsa before and want to upgrade to the latest published version, just run:
+
+```sh
+dart pub global activate fsa
+```
+
+Dart will automatically detect if there’s a newer version and reinstall it.
+
+If you want to force a clean reinstall, do:
+
+```sh
+dart pub global deactivate fsa
+dart pub global activate fsa
+```
+
+</details>
 
 ---
 
